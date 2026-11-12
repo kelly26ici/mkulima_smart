@@ -1,67 +1,49 @@
-import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from __future__ import anotations
 
 
-class Config:
-    """Base configuration class."""
+from functools import lru_cache
+from typing import Literal
 
-    ENV_TYPE = os.getenv("FLASK_ENV", "development")
-    SECRET_KEY = os.environ.get("SECRET_KEY") or "dev-secret-key-change-in-production"
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+from pydantic import Field, SecretStr computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-    # if ENV_TYPE == "production":
-    #     SQLALCHEMY_DATABASE_URI = os.getenv("SERVER_DATABASE_URL")
-    # else:
-    SQLALCHEMY_DATABASE_URI = "sqlite///db.sqlite"
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore", populate_by_name=True)
 
-    # Database configuration
+    # App
+    ENV_TYPE: Literal["development", "production", "testing"] = Field(default="development", validation_alias="FLASK_ENV")
+    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    HOST: str = "0.0.0.0"
+    PORT: int = 5000
 
-    # LLM Configuration
-    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-    GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-    LANGCHAIN_API_KEY = os.environ.get("LANGCHAIN_API_KEY")
-    LANGCHAIN_TRACING_V2 = (
-        os.environ.get("LANGCHAIN_TRACING_V2", "false").lower() == "true"
-    )
-    LANGCHAIN_PROJECT = os.environ.get("LANGCHAIN_PROJECT", "mkulima_smart")
+    # Database
+    SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
+    SQLALCHEMY_DATABASE_URL: str = "sqlite:///db.sqlite"
 
-    # Africa's Talking Configuration
-    AFRICASTALKING_USERNAME = os.environ.get("AFRICASTALKING_USERNAME", "sandbox")
-    AFRICASTALKING_API_KEY = os.environ.get("AFRICASTALKING_API_KEY")
+    #LLM
+    OPENAI_API_KEY: SecretStr | None = None
+    GROQ_API_KEy: SecretStr
 
-    # Application settings
-    HOST = os.environ.get("HOST", "0.0.0.0")
-    PORT = int(os.environ.get("PORT", 5000))
+    # Tracing
+    LANGSMITH_API_KEY: SecretStr | None = None
+    LANGSMITH_TRACING_V2: bool = False
+    LANGSMITH_PROJECT: str = "mkulima_smart"
 
+    #Africa's Talking
+    AFRICASTALKING_USERNAME: str = "sandbox"
+    AFRICASTALKING_API_KEY: SecretStr | None = None
 
-class DevelopmentConfig(Config):
-    """Development configuration."""
+    @computed_field
+    @property
+    def DEBUG(self) -> bool:
+        return self.ENV_TYPE == "testing"
 
-    DEBUG = True
-    FLASK_ENV = "development"
+    def flask_config(self) -> dict:
+        data = {
+                k: v.get_secret_value() if isinstance(v, SecretStr) else v
+                }
+        return data | {"DEBUG": self.DEBUG, "TESTING": self.TESTING}
 
-
-class ProductionConfig(Config):
-    """Production configuration."""
-
-    DEBUG = False
-    FLASK_ENV = "production"
-
-
-class TestingConfig(Config):
-    """Testing configuration."""
-
-    TESTING = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
-
-
-# Configuration dictionary
-config = {
-    "development": DevelopmentConfig,
-    "production": ProductionConfig,
-    "testing": TestingConfig,
-    "default": DevelopmentConfig,
-}
+lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
